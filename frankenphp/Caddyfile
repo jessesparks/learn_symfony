@@ -63,3 +63,10 @@
 		hide *.php
 	}
 }
+
+phpmyadmin.localhost {
+	root * /var/www/html
+    php_fastcgi admin:9000
+    file_server
+	encode zstd br gzip
+}

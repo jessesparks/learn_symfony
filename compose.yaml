@@ -2,13 +2,14 @@
 services:
   php:
     image: ${IMAGES_PREFIX:-}app-php
+    container_name: php
     restart: unless-stopped
     environment:
       SERVER_NAME: ${SERVER_NAME:-localhost}, php:80
       MERCURE_PUBLISHER_JWT_KEY: ${CADDY_MERCURE_JWT_SECRET:-!ChangeThisMercureHubJWTSecretKey!}
       MERCURE_SUBSCRIBER_JWT_KEY: ${CADDY_MERCURE_JWT_SECRET:-!ChangeThisMercureHubJWTSecretKey!}
       # Run "composer require symfony/orm-pack" to install and configure Doctrine ORM
-      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-!ChangeMe!}@database:5432/${POSTGRES_DB:-app}?serverVersion=${POSTGRES_VERSION:-15}&charset=${POSTGRES_CHARSET:-utf8}
+      DATABASE_URL: mysql://${MARIADB_USER:-app}:${MARIADB_PASSWORD:-!ChangeMe!}@database:3306/${MARIADB_DB:-demoapp}?serverVersion=${MARIADB_VERSION:-11.8.3-MariaDB}&charset=${MARIADB_CHARSET:-utf8}
       # Run "composer require symfony/mercure-bundle" to install and configure the Mercure integration
       MERCURE_URL: ${CADDY_MERCURE_URL:-http://php/.well-known/mercure}
       MERCURE_PUBLIC_URL: ${CADDY_MERCURE_PUBLIC_URL:-https://${SERVER_NAME:-localhost}:${HTTPS_PORT:-443}/.well-known/mercure}
@@ -19,6 +20,7 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+      - phpmyadmin:/var/www/html
     ports:
       # HTTP
       - target: 80
@@ -32,13 +34,55 @@ services:
       - target: 443
         published: ${HTTP3_PORT:-443}
         protocol: udp
+    depends_on:
+      database:
+        condition: service_healthy
 
 # Mercure is installed as a Caddy module, prevent the Flex recipe from installing another service
 ###> symfony/mercure-bundle ###
 ###< symfony/mercure-bundle ###
+
+###> doctrine/doctrine-bundle ###
+  database:
+    image: mariadb:${MARIADB_VERSION:-lts-ubi9}
+    container_name: database
+    environment:
+      MARIADB_DATABASE: ${MARIADB_DB:-demoapp}
+      # You should definitely change the password in production
+      MARIADB_RANDOM_ROOT_PASSWORD: "true"
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-!ChangeMe!}
+      MARIADB_USER: ${MARIADB_USER:-app}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - database_data:/var/lib/mariadb:rw
+      # You may use a bind-mounted host directory instead, so that it is harder to accidentally remove the volume and lose all your data!
+      # - docker/db/data:/var/lib/mariadb/data:rw
+###< doctrine/doctrine-bundle ###
+
+  admin:
+    image: phpmyadmin:fpm-alpine
+    container_name: admin
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      PMA_HOST: database
+      PMA_USER: ${MARIADB_USER:-app}
+      PMA_PASSWORD: ${MARIADB_PASSWORD:-!ChangeMe!}
+    volumes:
+      - phpmyadmin:/var/www/html
 
 volumes:
   caddy_data:
   caddy_config:
 ###> symfony/mercure-bundle ###
 ###< symfony/mercure-bundle ###
+
+###> doctrine/doctrine-bundle ###
+  database_data:
+###< doctrine/doctrine-bundle ###
+  phpmyadmin:
